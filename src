@@ -1,0 +1,146 @@
+Mapper:-
+
+import java.io.IOException;
+import java.util.StringTokenizer;
+
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+public class Map extends Mapper<Object, Text, DBOutput, IntWritable> {
+    private static final IntWritable one = new IntWritable(1);
+    private DBOutput text = new DBOutput();
+    public void map(Object key, Text value, Mapper<Object, Text, DBOutput, IntWritable>.Context context)
+    	    throws IOException, InterruptedException{
+		StringTokenizer token = new StringTokenizer(value.toString().replaceAll("\\p{Punct}|\\d", "").toLowerCase());
+        while(token.hasMoreTokens()) {
+            this.text.setText(token.nextToken());
+            context.write(this.text, one);
+        }            
+                    
+    }
+}
+
+Reducer:-
+
+import java.io.IOException;
+
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.mapreduce.Reducer;
+
+public class Reduce extends Reducer<DBOutput, IntWritable, DBOutput, IntWritable> {
+	public void reduce(DBOutput key, Iterable<IntWritable> values, Reducer<DBOutput, IntWritable, DBOutput, IntWritable>.Context context)
+		    throws IOException, InterruptedException {
+		int sum = 0;
+        DBOutput dbKey = new DBOutput();
+        
+        for (IntWritable val : values) {
+            sum += val.get();
+          }
+        dbKey.setText(key.getText());
+        dbKey.setNo(sum);
+        context.write(dbKey, new IntWritable(sum));
+        
+    }
+
+}
+
+Driver:-
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.db.DBConfiguration;
+import org.apache.hadoop.mapreduce.lib.db.DBOutputFormat;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class Driver
+{
+   public static void main(String[] args) throws Exception
+   {
+     Configuration conf = new Configuration();
+     DBConfiguration.configureDB(conf,
+     "com.mysql.jdbc.Driver",   // driver class
+     "jdbc:mysql://localhost:3306/wc", // db url
+     "root",    // user name
+     "root"); //password
+     Job job = new Job(conf);
+     job.setJobName("WordCount_DB");
+     job.setJarByClass(Driver.class);
+     job.setMapperClass(Map.class);
+     job.setReducerClass(Reduce.class);
+     job.setCombinerClass(Reduce.class);
+     job.setMapOutputKeyClass(DBOutput.class);
+     job.setMapOutputValueClass(IntWritable.class);
+     job.setOutputKeyClass(DBOutput.class);
+     job.setOutputValueClass(IntWritable.class);
+     job.setOutputFormatClass(DBOutputFormat.class);
+     FileInputFormat.addInputPath(job, new Path(args[0]);
+     FileOutputFormat.setOutputPath(job, new Path(args[1]);
+     DBOutputFormat.setOutput(job, "word_count", "word", "count");
+
+     System.exit(job.waitForCompletion(true) ? 0 : 1);
+   }
+}
+
+DBOutput:-
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+
+import org.apache.hadoop.io.WritableComparable;
+import org.apache.hadoop.mapreduce.lib.db.DBWritable;
+
+class DBOutput implements DBWritable, WritableComparable<DBOutput> {
+        
+        private String text;
+        
+        private int no;
+
+        public void readFields(ResultSet rs) throws SQLException {
+            text = rs.getString("word");
+            no = rs.getInt("count");
+        }
+
+        public void write(PreparedStatement ps) throws SQLException {
+            ps.setString(1, text);
+            ps.setInt(2, no);
+        }
+        
+        public void setText(String text) {
+            this.text = text;
+        }
+        
+        public String getText() {
+            return text;
+        }
+        
+        public void setNo(int no) {
+            this.no = no;
+        }
+        
+        public int getNo() {
+            return no;
+        }
+
+        public void readFields(DataInput input) throws IOException {
+            text = input.readUTF();    
+            no = input.readInt();
+        }
+
+        public void write(DataOutput output) throws IOException {
+            output.writeUTF(text);
+            output.writeInt(no);
+        }
+
+        public int compareTo(DBOutput o) {
+            return text.compareTo(o.getText());
+        }
+        
+    }
